@@ -2,62 +2,63 @@
 #define CHANNEL_HPP
 
 #include <string>
+#include <vector>
 #include <map>
-#include <set>
-#include "Utils.hpp"
 
 class Client;
 
-class Channel {
-private:
-    std::string _name;
-    std::string _topic;
-    std::string _key;
-    std::set<Client*> _clients;
-    std::set<Client*> _operators;
-    bool _inviteOnly;
-    bool _topicProtected;
-    int _userLimit;
-
+class Channel
+{
 public:
-    Channel(const std::string& name);
-    ~Channel();
+	Channel(const std::string &name);
+	~Channel();
 
-    // Getter'lar
-    std::string getName() const { return _name; }
-    std::string getTopic() const { return _topic; }
-    std::string getKey() const { return _key; }
-    bool isInviteOnly() const { return _inviteOnly; }
-    bool isTopicProtected() const { return _topicProtected; }
-    int getUserLimit() const { return _userLimit; }
-    size_t getClientCount() const { return _clients.size(); }
-    const std::set<Client*>& getClients() const { return _clients; }
-    const std::set<Client*>& getOperators() const { return _operators; }
+	const std::string &getName() const;
+	const std::string &getTopic() const;
+	void setTopic(const std::string &topic);
 
-    // Setter'lar
-    void setTopic(const std::string& topic);
-    void setKey(const std::string& key);
-    void setInviteOnly(bool value) { _inviteOnly = value; }
-    void setTopicProtected(bool value) { _topicProtected = value; }
-    void setUserLimit(int limit) { _userLimit = limit; }
+	void addClient(Client *client);
+	void removeClient(Client *client);
+	bool hasClient(Client *client) const;
+	std::vector<Client *> getClients() const;
 
-    // Client yönetimi
-    void addClient(Client* client);
-    void removeClient(Client* client);
-    bool hasClient(Client* client) const;
-    bool isOperator(Client* client) const;
+	void addOperator(Client *client);
+	void removeOperator(Client *client);
+	bool isOperator(Client *client) const;
+	std::vector<Client *> getOperators() const;
+	bool hasOperators() const;
+	void promoteNextOperator();
 
-    // Operatör yönetimi
-    void addOperator(Client* client);
-    void removeOperator(Client* client);
+	void broadcast(const std::string &message, Client *sender = NULL);
 
-    // Kanal modları
-    void setMode(char mode, bool value, const std::string& param = "");
-    std::string getModes() const;
+	// Mode işlemleri
+	void setInviteOnly(bool inviteOnly);
+	bool isInviteOnly() const;
+	void setTopicRestricted(bool restricted);
+	bool isTopicRestricted() const;
+	void setKey(const std::string &key);
+	const std::string &getKey() const;
+	void setUserLimit(int limit);
+	int getUserLimit() const;
 
-    // Mesaj işleme
-    void broadcast(const std::string& message, Client* exclude = NULL);
-    void sendToClient(Client* client, const std::string& message);
+	// Ban listesi yönetimi
+	void addBan(const std::string &mask);
+	void removeBan(const std::string &mask);
+	bool isBanned(const std::string &mask) const;
+	std::vector<std::string> getBanList() const;
+
+private:
+	std::string _name;
+	std::string _topic;
+	std::vector<Client *> _clients;
+	std::vector<Client *> _operators;
+
+	// Channel modes
+	bool _inviteOnly;
+	bool _topicRestricted;
+	std::string _key;
+	int _userLimit;
+	std::vector<std::string> _banList;
 };
 
-#endif 
+#endif

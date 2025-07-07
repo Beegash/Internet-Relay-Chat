@@ -1,105 +1,77 @@
-#include "../include/Client.hpp"
-#include "../include/Channel.hpp"
-#include <sstream>
-#include <algorithm>
+#include "Client.hpp"
+#include <sys/socket.h>
+#include <unistd.h>
+#include <iostream>
 
-Client::Client(int socket) : 
-    _socket(socket),
-    _isAuthenticated(false),
-    _isRegistered(false) {
+Client::Client(int fd) : _fd(fd), _authenticated(false), _registered(false)
+{
 }
 
-Client::~Client() {
-    // Tüm kanallardan çık
-    for (std::set<Channel*>::iterator it = _channels.begin(); it != _channels.end(); ++it) {
-        (*it)->removeClient(this);
-    }
-    _channels.clear();
+Client::~Client()
+{
+	if (_fd >= 0)
+		close(_fd);
 }
 
-void Client::setNickname(const std::string& nickname) {
-    if (Utils::isValidNickname(nickname)) {
-        _nickname = nickname;
-    }
+int Client::getFd() const
+{
+	return _fd;
 }
 
-void Client::setUsername(const std::string& username) {
-    _username = username;
+const std::string &Client::getNickname() const
+{
+	return _nickname;
 }
 
-void Client::setRealname(const std::string& realname) {
-    _realname = realname;
+const std::string &Client::getUsername() const
+{
+	return _username;
 }
 
-void Client::setHostname(const std::string& hostname) {
-    _hostname = hostname;
+const std::string &Client::getRealname() const
+{
+	return _realname;
 }
 
-void Client::joinChannel(Channel* channel) {
-    if (channel) {
-        _channels.insert(channel);
-    }
+bool Client::isAuthenticated() const
+{
+	return _authenticated;
 }
 
-void Client::leaveChannel(Channel* channel) {
-    if (channel) {
-        _channels.erase(channel);
-    }
+bool Client::isRegistered() const
+{
+	return _registered;
 }
 
-bool Client::isInChannel(const std::string& channelName) const {
-    for (std::set<Channel*>::const_iterator it = _channels.begin(); it != _channels.end(); ++it) {
-        if ((*it)->getName() == channelName) {
-            return true;
-        }
-    }
-    return false;
+void Client::setNickname(const std::string &nickname)
+{
+	_nickname = nickname;
 }
 
-void Client::appendToBuffer(const std::string& data) {
-    _buffer += data;
+void Client::setUsername(const std::string &username)
+{
+	_username = username;
 }
 
-std::vector<std::string> Client::getCompleteMessages() {
-    std::vector<std::string> messages;
-    size_t pos = 0;
-    size_t end;
-
-    while ((end = _buffer.find("\r\n", pos)) != std::string::npos) {
-        messages.push_back(_buffer.substr(pos, end - pos));
-        pos = end + 2;
-    }
-
-    if (pos < _buffer.length()) {
-        _buffer = _buffer.substr(pos);
-    } else {
-        _buffer.clear();
-    }
-
-    return messages;
+void Client::setRealname(const std::string &realname)
+{
+	_realname = realname;
 }
 
-bool Client::authenticate(const std::string& password) {
-    (void)password;
-    // TODO: Gerçek kimlik doğrulama mantığı burada olacak
-    _isAuthenticated = true;
-    return true;
+void Client::setAuthenticated(bool auth)
+{
+	_authenticated = auth;
 }
 
-bool Client::registerUser(const std::string& nickname, const std::string& username, const std::string& realname) {
-    if (!Utils::isValidNickname(nickname)) {
-        return false;
-    }
-
-    setNickname(nickname);
-    setUsername(username);
-    setRealname(realname);
-    _isRegistered = true;
-    return true;
+void Client::setRegistered(bool reg)
+{
+	_registered = reg;
 }
 
-std::string Client::getPrefix() const {
-    std::stringstream ss;
-    ss << _nickname << "!" << _username << "@" << _hostname;
-    return ss.str();
-} 
+void Client::sendMessage(const std::string &message)
+{
+	if (_fd >= 0)
+	{
+		send(_fd, message.c_str(), message.length(), 0);
+	}
+}

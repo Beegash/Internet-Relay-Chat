@@ -1,114 +1,172 @@
-#include "../include/Channel.hpp"
-#include "../include/Client.hpp"
-#include "../include/Server.hpp"
-#include <sstream>
+#include "Channel.hpp"
+#include "Client.hpp"
+#include <algorithm>
+#include <iostream>
 
-Channel::Channel(const std::string& name) : 
-    _name(name),
-    _inviteOnly(false),
-    _topicProtected(false),
-    _userLimit(0) {
+Channel::Channel(const std::string &name)
+	: _name(name), _inviteOnly(false), _topicRestricted(false), _userLimit(0)
+{
 }
 
-Channel::~Channel() {
-    // Tüm client'ları kanaldan çıkar
-    for (std::set<Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
-        (*it)->leaveChannel(this);
-    }
-    _clients.clear();
-    _operators.clear();
+Channel::~Channel()
+{
 }
 
-void Channel::setTopic(const std::string& topic) {
-    _topic = topic;
+const std::string &Channel::getName() const
+{
+	return _name;
 }
 
-void Channel::setKey(const std::string& key) {
-    _key = key;
+const std::string &Channel::getTopic() const
+{
+	return _topic;
 }
 
-void Channel::addClient(Client* client) {
-    if (client) {
-        _clients.insert(client);
-        client->joinChannel(this);
-    }
+void Channel::setTopic(const std::string &topic)
+{
+	_topic = topic;
 }
 
-void Channel::removeClient(Client* client) {
-    if (client) {
-        _clients.erase(client);
-        _operators.erase(client);
-        client->leaveChannel(this);
-    }
+void Channel::addClient(Client *client)
+{
+	if (client && !hasClient(client))
+	{
+		_clients.push_back(client);
+	}
 }
 
-bool Channel::hasClient(Client* client) const {
-    return client && _clients.find(client) != _clients.end();
+void Channel::removeClient(Client *client)
+{
+	if (client)
+	{
+		_clients.erase(std::remove(_clients.begin(), _clients.end(), client), _clients.end());
+		removeOperator(client);
+	}
 }
 
-bool Channel::isOperator(Client* client) const {
-    return client && _operators.find(client) != _operators.end();
+bool Channel::hasClient(Client *client) const
+{
+	return std::find(_clients.begin(), _clients.end(), client) != _clients.end();
 }
 
-void Channel::addOperator(Client* client) {
-    if (client && hasClient(client)) {
-        _operators.insert(client);
-    }
+std::vector<Client *> Channel::getClients() const
+{
+	return _clients;
 }
 
-void Channel::removeOperator(Client* client) {
-    if (client) {
-        _operators.erase(client);
-    }
+void Channel::addOperator(Client *client)
+{
+	if (client && !isOperator(client))
+	{
+		_operators.push_back(client);
+	}
 }
 
-void Channel::setMode(char mode, bool value, const std::string& param) {
-    switch (mode) {
-        case 'i': // Invite-only
-            _inviteOnly = value;
-            break;
-        case 't': // Topic protection
-            _topicProtected = value;
-            break;
-        case 'k': // Channel key
-            if (value) {
-                _key = param;
-            } else {
-                _key.clear();
-            }
-            break;
-        case 'l': // User limit
-            if (value && !param.empty()) {
-                _userLimit = std::atoi(param.c_str());
-            } else {
-                _userLimit = 0;
-            }
-            break;
-    }
+void Channel::removeOperator(Client *client)
+{
+	if (client)
+	{
+		_operators.erase(std::remove(_operators.begin(), _operators.end(), client), _operators.end());
+	}
 }
 
-std::string Channel::getModes() const {
-    std::stringstream ss;
-    ss << "+";
-    
-    if (_inviteOnly) ss << "i";
-    if (_topicProtected) ss << "t";
-    if (!_key.empty()) ss << "k";
-    if (_userLimit > 0) ss << "l";
-    
-    return ss.str();
+bool Channel::isOperator(Client *client) const
+{
+	return std::find(_operators.begin(), _operators.end(), client) != _operators.end();
 }
 
-void Channel::broadcast(const std::string& message, Client* exclude) {
-    for (std::set<Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
-        if (*it != exclude) {
-            sendToClient(*it, message);
-        }
-    }
+std::vector<Client *> Channel::getOperators() const
+{
+	return _operators;
 }
 
-void Channel::sendToClient(Client* client, const std::string& message) {
-    if (client) {
-        Server::getInstance().sendToClient(client->getSocket(), message);
-    }
-} 
+bool Channel::hasOperators() const
+{
+	return !_operators.empty();
+}
+
+void Channel::broadcast(const std::string &message, Client *sender)
+{
+	for (std::vector<Client *>::iterator it = _clients.begin(); it != _clients.end(); ++it)
+	{
+		if (*it != sender)
+		{
+			(*it)->sendMessage(message);
+		}
+	}
+}
+
+void Channel::setInviteOnly(bool inviteOnly)
+{
+	_inviteOnly = inviteOnly;
+}
+
+bool Channel::isInviteOnly() const
+{
+	return _inviteOnly;
+}
+
+void Channel::setTopicRestricted(bool restricted)
+{
+	_topicRestricted = restricted;
+}
+
+bool Channel::isTopicRestricted() const
+{
+	return _topicRestricted;
+}
+
+void Channel::setKey(const std::string &key)
+{
+	_key = key;
+}
+
+const std::string &Channel::getKey() const
+{
+	return _key;
+}
+
+void Channel::setUserLimit(int limit)
+{
+	_userLimit = limit;
+}
+
+int Channel::getUserLimit() const
+{
+	return _userLimit;
+}
+
+void Channel::addBan(const std::string &mask)
+{
+	if (!isBanned(mask))
+	{
+		_banList.push_back(mask);
+	}
+}
+
+void Channel::removeBan(const std::string &mask)
+{
+	_banList.erase(std::remove(_banList.begin(), _banList.end(), mask), _banList.end());
+}
+
+bool Channel::isBanned(const std::string &mask) const
+{
+	return std::find(_banList.begin(), _banList.end(), mask) != _banList.end();
+}
+
+std::vector<std::string> Channel::getBanList() const
+{
+	return _banList;
+}
+
+void Channel::promoteNextOperator()
+{
+	if (_operators.empty() && !_clients.empty())
+	{
+		Client *newOp = _clients[0];
+		addOperator(newOp);
+		std::string nickname = newOp->getNickname();
+		std::string modeMsg = ":localhost MODE " + _name + " +o " + nickname + "\r\n";
+		broadcast(modeMsg);
+	}
+}

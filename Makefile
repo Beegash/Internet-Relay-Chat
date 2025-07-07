@@ -1,38 +1,27 @@
 NAME = ircserv
-TEST_NAME = test_client
+
+SRC = src/main.cpp src/Server.cpp src/ServerNetwork.cpp src/ServerUtils.cpp src/ServerCommands.cpp src/Client.cpp src/Channel.cpp
+
+OBJ = $(SRC:.cpp=.o)
+
 CC = c++
-CFLAGS = -Wall -Wextra -Werror -std=c++98
 
-SRCS = src/Utils.cpp \
-       src/Server.cpp \
-       src/Client.cpp \
-       src/Channel.cpp \
-       src/CommandHandler.cpp \
-       src/main.cpp
-
-OBJS = $(SRCS:.cpp=.o)
-
-INCLUDES = -I include
+CPPFLAGS = -Wall -Wextra -Werror -std=c++98
 
 all: $(NAME)
 
-$(NAME): $(OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJS) -o $(NAME)
-
-test: $(TEST_NAME)
-
-$(TEST_NAME): test_client.cpp
-	$(CC) $(CFLAGS) $(INCLUDES) test_client.cpp -o $(TEST_NAME)
+$(NAME): $(OBJ)
+	$(CC) $(CPPFLAGS) -Iinclude -o $(NAME) $(OBJ)
 
 %.o: %.cpp
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+	$(CC) $(CPPFLAGS) -Iinclude -c $< -o $@
 
 clean:
-	rm -f $(OBJS)
+	rm -f $(OBJ)
 
 fclean: clean
-	rm -f $(NAME) $(TEST_NAME)
+	rm -f $(NAME)
 
 re: fclean all
 
-.PHONY: all clean fclean re test 
+.PHONY: all clean fclean re

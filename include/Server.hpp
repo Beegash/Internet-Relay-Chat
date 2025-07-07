@@ -4,62 +4,69 @@
 #include <string>
 #include <map>
 #include <vector>
-#include <poll.h>
-#include "Utils.hpp"
+#include <set>
+#include <sys/select.h>
 
 class Client;
 class Channel;
 
-class Server {
-private:
-    int _port;
-    std::string _password;
-    int _serverSocket;
-    std::vector<pollfd> _pollfds;
-    std::map<int, Client*> _clients;
-    std::map<std::string, Channel*> _channels;
-    std::string _serverName;
-
-    // Private constructor (Singleton pattern)
-    Server();
-    Server(const Server& other);
-    Server& operator=(const Server& other);
-
+class Server
+{
 public:
-    // Singleton instance
-    static Server& getInstance();
-    ~Server();
+	Server(int port, const char *password);
+	~Server();
+	void run();
 
-    // Server başlatma ve çalıştırma
-    void init(int port, const std::string& password);
-    void start();
-    void stop();
+private:
+	// === NETWORK OPERATIONS (ServerNetwork.cpp) ===
+	void handleNewConnection(int listen_fd);
+	void handleClientData(Client *client);
+	void removeClient(Client *client);
 
-    // Client yönetimi
-    void addClient(int clientSocket);
-    void removeClient(int clientSocket);
-    Client* getClient(int clientSocket);
-    Client* getClientByNickname(const std::string& nickname);
+	// === COMMAND PROCESSING (ServerCommands.cpp) ===
+	void processCommand(Client *client, const std::string &command);
+	
+	// IRC Authentication Commands
+	void handlePass(Client *client, const std::vector<std::string> &args);
+	void handleNick(Client *client, const std::vector<std::string> &args);
+	void handleUser(Client *client, const std::vector<std::string> &args);
+	
+	// IRC Channel Commands
+	void handleJoin(Client *client, const std::vector<std::string> &args);
+	void handlePart(Client *client, const std::vector<std::string> &args);
+	void handlePrivmsg(Client *client, const std::vector<std::string> &args);
+	void handleKick(Client *client, const std::vector<std::string> &args);
+	void handleInvite(Client *client, const std::vector<std::string> &args);
+	void handleTopic(Client *client, const std::vector<std::string> &args);
+	void handleMode(Client *client, const std::vector<std::string> &args);
+	
+	// IRC Utility Commands
+	void handleQuit(Client *client, const std::vector<std::string> &args);
+	void handleCap(Client *client, const std::vector<std::string> &args);
+	void handlePing(Client *client, const std::vector<std::string> &args);
+	void handleNotice(Client *client, const std::vector<std::string> &args);
+	void handleWho(Client *client, const std::vector<std::string> &args);
 
-    // Kanal yönetimi
-    Channel* getChannel(const std::string& name);
-    void createChannel(const std::string& name, Client* creator);
-    void removeChannel(const std::string& name);
+	// === UTILITY FUNCTIONS (ServerUtils.cpp) ===
+	std::vector<std::string> splitCommand(const std::string &command);
+	Client *findClientByNickname(const std::string &nickname);
+	Channel *findChannel(const std::string &name);
+	Channel *createChannel(const std::string &name);
+	void sendWelcome(Client *client);
 
-    // Getter'lar
-    int getPort() const { return _port; }
-    std::string getPassword() const { return _password; }
-    int getServerSocket() const { return _serverSocket; }
-    const std::string& getServerName() const { return _serverName; }
+	// === MEMBER VARIABLES ===
+	int _port;
+	const char *_password;
+	int _listen_fd;
 
-    // Poll yönetimi
-    void addToPoll(int fd, short events);
-    void removeFromPoll(int fd);
-    void handlePollEvents();
+	// fd_set management
+	fd_set _master_set;
+	fd_set _read_fds;
+	int _fd_max;
 
-    // Mesaj işleme
-    void broadcast(const std::string& message, int excludeFd = -1);
-    void sendToClient(int clientFd, const std::string& message);
+	std::map<int, Client *> _clients;				  // fd -> Client*
+	std::map<std::string, Client *> _clients_by_nick; // nickname -> Client*
+	std::map<std::string, Channel *> _channels;		  // channel_name -> Channel*
 };
 
-#endif 
+#endif
