@@ -162,13 +162,53 @@ void Server::handleNick(Client *client, const std::vector<std::string> &args)
         std::string nickMsg = ":" + oldNick + "!user@localhost NICK :" + nickname + "\r\n";
         client->sendMessage(nickMsg);
 
-        // Broadcast NICK change to all shared channels
+        // Check if user is banned with new nickname in any channels they're in
+        std::vector<Channel *> channelsToLeave;
         for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
         {
             Channel *channel = it->second;
             if (channel->hasClient(client))
             {
-                channel->broadcast(nickMsg);
+                // Check if new nickname is banned
+                std::vector<std::string> banList = channel->getBanList();
+                bool isBanned = false;
+                for (std::vector<std::string>::iterator banIt = banList.begin(); banIt != banList.end(); ++banIt)
+                {
+                    std::string banMask = *banIt;
+                    if (banMask == nickname || banMask == nickname + "!*@*")
+                    {
+                        isBanned = true;
+                        break;
+                    }
+                }
+                
+                if (isBanned)
+                {
+                    // Mark channel for removal (can't remove during iteration)
+                    channelsToLeave.push_back(channel);
+                }
+                else
+                {
+                    // Broadcast NICK change to this channel
+                    channel->broadcast(nickMsg);
+                }
+            }
+        }
+        
+        // Remove user from banned channels
+        for (std::vector<Channel *>::iterator it = channelsToLeave.begin(); it != channelsToLeave.end(); ++it)
+        {
+            Channel *channel = *it;
+            std::string kickMsg = ":localhost KICK " + channel->getName() + " " + nickname + " :Banned nickname\r\n";
+            channel->broadcast(kickMsg);
+            
+            bool wasOperator = channel->isOperator(client);
+            channel->removeClient(client);
+            
+            // If the user was an operator and channel is not empty, promote new operator
+            if (wasOperator && !channel->getClients().empty())
+            {
+                channel->promoteNextOperator();
             }
         }
     }
@@ -244,8 +284,8 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &args)
     for (std::vector<std::string>::iterator it = banList.begin(); it != banList.end(); ++it)
     {
         std::string banMask = *it;
-        // Simple ban check: exact nickname or wildcard (*!*@localhost)
-        if (banMask == nickname || banMask == "*!*@localhost" || banMask == nickname + "!*@*")
+        // Ban check: exact nickname or nickname with wildcards
+        if (banMask == nickname || banMask == nickname + "!*@*")
         {
             client->sendMessage(":localhost 474 " + nickname + " " + channelName + " :Cannot join channel (+b)\r\n");
             return;
@@ -669,9 +709,49 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                             client->sendMessage(":localhost 485 * " + target + " :You cannot ban yourself\r\n");
                             continue;
                         }
+                        
+                        // Prevent overly broad ban masks that would ban everyone
+                        if (banMask == "*!*@localhost" || banMask == "*!*@*" || banMask == "*")
+                        {
+                            client->sendMessage(":localhost 486 * " + target + " :Ban mask too broad - would ban everyone\r\n");
+                            continue;
+                        }
+                        
                         channel->addBan(banMask);
                         std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +b " + banMask + "\r\n";
                         channel->broadcast(modeMsg);
+                        
+                        // Check if the banned user is currently in the channel and kick them
+                        // Only for specific nickname bans, not wildcards
+                        Client *bannedClient = NULL;
+                        if (banMask.find("!") == std::string::npos && banMask.find("*") == std::string::npos)
+                        {
+                            // Simple nickname ban
+                            bannedClient = findClientByNickname(banMask);
+                        }
+                        else if (banMask.length() > 4 && banMask.substr(banMask.length() - 4) == "!*@*")
+                        {
+                            // nickname!*@* format
+                            std::string nickOnly = banMask.substr(0, banMask.length() - 4);
+                            bannedClient = findClientByNickname(nickOnly);
+                        }
+                        
+                        if (bannedClient && channel->hasClient(bannedClient))
+                        {
+                            // Send kick message
+                            std::string kickMsg = ":" + nickname + "!user@localhost KICK " + target + " " + banMask + " :Banned\r\n";
+                            channel->broadcast(kickMsg);
+                            
+                            // Remove from channel
+                            bool wasOperator = channel->isOperator(bannedClient);
+                            channel->removeClient(bannedClient);
+                            
+                            // If the banned user was an operator and channel is not empty, promote new operator
+                            if (wasOperator && !channel->getClients().empty())
+                            {
+                                channel->promoteNextOperator();
+                            }
+                        }
                     }
                     else
                     {
@@ -721,13 +801,18 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                     Client *targetClient = findClientByNickname(targetNick);
                     if (targetClient && channel->hasClient(targetClient))
                     {
+                        std::string nickname = client->getNickname();
                         if (setting)
                         {
                             channel->addOperator(targetClient);
+                            std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +o " + targetNick + "\r\n";
+                            channel->broadcast(modeMsg);
                         }
                         else
                         {
                             channel->removeOperator(targetClient);
+                            std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -o " + targetNick + "\r\n";
+                            channel->broadcast(modeMsg);
                         }
                     }
                 }
