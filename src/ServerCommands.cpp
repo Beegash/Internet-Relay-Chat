@@ -929,9 +929,41 @@ void Server::handleWho(Client *client, const std::vector<std::string> &args)
         for (std::vector<Client *>::iterator it = clients.begin(); it != clients.end(); ++it)
         {
             std::string targetNick = (*it)->getNickname();
+            std::string username = (*it)->getUsername();
+            std::string realname = (*it)->getRealname();
+            
+            // If username/realname is empty, use defaults
+            if (username.empty()) username = "user";
+            if (realname.empty()) realname = targetNick;
+            
             std::string prefix = channel->isOperator(*it) ? "@" : "";
-            client->sendMessage(":localhost 352 " + nickname + " " + target + " user localhost localhost " + targetNick + " H" + prefix + " :0 " + targetNick + "\r\n");
+            std::string flags = "H" + prefix; // H = Here (not away)
+            
+            // RFC 1459 WHO reply format: 352 <nick> <channel> <user> <host> <server> <nick> <flags> :<hopcount> <real name>
+            client->sendMessage(":localhost 352 " + nickname + " " + target + " " + username + " localhost localhost " + targetNick + " " + flags + " :0 " + realname + "\r\n");
         }
+        client->sendMessage(":localhost 315 " + nickname + " " + target + " :End of /WHO list\r\n");
+    }
+    else
+    {
+        // Single user WHO
+        Client *targetClient = findClientByNickname(target);
+        if (!targetClient)
+        {
+            client->sendMessage(":localhost 401 * " + target + " :No such nick/channel\r\n");
+            return;
+        }
+        
+        std::string targetNick = targetClient->getNickname();
+        std::string username = targetClient->getUsername();
+        std::string realname = targetClient->getRealname();
+        
+        // If username/realname is empty, use defaults
+        if (username.empty()) username = "user";
+        if (realname.empty()) realname = targetNick;
+        
+        // Single user WHO reply
+        client->sendMessage(":localhost 352 " + nickname + " * " + username + " localhost localhost " + targetNick + " H :0 " + realname + "\r\n");
         client->sendMessage(":localhost 315 " + nickname + " " + target + " :End of /WHO list\r\n");
     }
 } 
