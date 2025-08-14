@@ -11,7 +11,7 @@
 #include <arpa/inet.h>
 
 Server::Server(int port, const char *password)
-    : _port(port), _password(password), _listen_fd(-1)
+    : _port(port), _password(std::string(password)), _listen_fd(-1)
 {
 }
 
@@ -103,3 +103,4 @@ void Server::run()
         }
     }
 } 
+ 

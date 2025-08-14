@@ -56,7 +56,7 @@ private:
 
 	// === MEMBER VARIABLES ===
 	int _port;
-	const char *_password;
+	std::string _password;
 	int _listen_fd;
 
 	// fd_set management
@@ -70,3 +70,4 @@ private:
 };
 
 #endif
+ 

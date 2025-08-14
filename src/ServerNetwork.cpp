@@ -28,8 +28,8 @@ void Server::handleNewConnection(int listen_fd)
 
         std::cout << "New connection: " << client_fd << " (fd_max: " << _fd_max << ")" << std::endl;
 
-        // Send welcome message
-        client->sendMessage(":localhost 001 * :Welcome to the Internet Relay Network\r\n");
+        // Şifre isteniyor mesajı
+        client->sendMessage(":localhost 464 * :Lütfen sunucuya bağlanmak için PASS <şifre> komutunu kullanın.\r\n");
     }
 }
 
@@ -103,7 +103,6 @@ void Server::removeClient(Client *client)
     for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
     {
         Channel *channel = it->second;
-        channel->removeInvite(client); // <-- invite listesinden de çıkar
         if (channel->hasClient(client))
         {
             bool wasOperator = channel->isOperator(client);
@@ -120,3 +119,4 @@ void Server::removeClient(Client *client)
     _clients.erase(fd);
     delete client;
 } 
+ 

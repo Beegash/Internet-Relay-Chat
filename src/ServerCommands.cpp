@@ -14,6 +14,13 @@ void Server::processCommand(Client *client, const std::string &command)
     std::string cmd = args[0];
     std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
 
+    // Şifre kontrolü: PASS hariç tüm kritik komutlarda uygula
+    if (cmd != "PASS" && !_password.empty() && !client->isAuthenticated())
+    {
+        client->sendMessage(":localhost 464 * :Password required\r\n");
+        return;
+    }
+
     if (cmd == "PASS")
     {
         handlePass(client, args);
@@ -94,6 +101,7 @@ void Server::handlePass(Client *client, const std::vector<std::string> &args)
     if (args[1] == _password)
     {
         client->setAuthenticated(true);
+        client->sendMessage(":localhost 001 * :Şifre doğrulandı. Lütfen NICK ve USER komutlarını girin.\r\n");
     }
     else
     {
@@ -181,7 +189,7 @@ void Server::handleNick(Client *client, const std::vector<std::string> &args)
                         break;
                     }
                 }
-                
+
                 if (isBanned)
                 {
                     // Mark channel for removal (can't remove during iteration)
@@ -194,17 +202,17 @@ void Server::handleNick(Client *client, const std::vector<std::string> &args)
                 }
             }
         }
-        
+
         // Remove user from banned channels
         for (std::vector<Channel *>::iterator it = channelsToLeave.begin(); it != channelsToLeave.end(); ++it)
         {
             Channel *channel = *it;
             std::string kickMsg = ":localhost KICK " + channel->getName() + " " + nickname + " :Banned nickname\r\n";
             channel->broadcast(kickMsg);
-            
+
             bool wasOperator = channel->isOperator(client);
             channel->removeClient(client);
-            
+
             // If the user was an operator and channel is not empty, promote new operator
             if (wasOperator && !channel->getClients().empty())
             {
@@ -303,13 +311,6 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &args)
     if (channel->hasClient(client))
     {
         return; // Already in channel, do nothing
-    }
-
-    if (channel->isInviteOnly() && !channel->isInvited(client))
-    {
-        std::cout << "DEBUG: handleJoin: channel=" << channelName << ", inviteOnly=" << (channel->isInviteOnly() ? "true" : "false") << ", invited=" << (channel->isInvited(client) ? "true" : "false") << std::endl;
-        client->sendMessage(":localhost 473 * " + channelName + " :Cannot join channel (+i)\r\n");
-        return;
     }
 
     channel->addClient(client);
@@ -433,7 +434,8 @@ void Server::handlePrivmsg(Client *client, const std::vector<std::string> &args)
         Client *targetClient = findClientByNickname(target);
         if (!targetClient)
         {
-            client->sendMessage(":localhost 401 * " + target + " :No such nick/channel\r\n");
+            // RFC 1459: 401 <nick> <target> :No such nick/channel
+            client->sendMessage(":localhost 401 " + client->getNickname() + " " + target + " :No such nick/channel\r\n");
             return;
         }
 
@@ -546,8 +548,6 @@ void Server::handleInvite(Client *client, const std::vector<std::string> &args)
         client->sendMessage(":localhost 443 * " + targetNick + " " + channelName + " :is already on channel\r\n");
         return;
     }
-
-    channel->addInvite(targetClient);
 
     std::string nickname = client->getNickname();
     std::string inviteMsg = ":" + nickname + "!user@localhost INVITE " + targetNick + " " + channelName + "\r\n";
@@ -670,7 +670,7 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
     }
 
     std::string modes = args[2];
-    
+
     if (target[0] == '#')
     {
         // Channel mode
@@ -718,18 +718,18 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                             client->sendMessage(":localhost 485 * " + target + " :You cannot ban yourself\r\n");
                             continue;
                         }
-                        
+
                         // Prevent overly broad ban masks that would ban everyone
                         if (banMask == "*!*@localhost" || banMask == "*!*@*" || banMask == "*")
                         {
                             client->sendMessage(":localhost 486 * " + target + " :Ban mask too broad - would ban everyone\r\n");
                             continue;
                         }
-                        
+
                         channel->addBan(banMask);
                         std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +b " + banMask + "\r\n";
                         channel->broadcast(modeMsg);
-                        
+
                         // Check if the banned user is currently in the channel and kick them
                         // Only for specific nickname bans, not wildcards
                         Client *bannedClient = NULL;
@@ -744,17 +744,17 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                             std::string nickOnly = banMask.substr(0, banMask.length() - 4);
                             bannedClient = findClientByNickname(nickOnly);
                         }
-                        
+
                         if (bannedClient && channel->hasClient(bannedClient))
                         {
                             // Send kick message
                             std::string kickMsg = ":" + nickname + "!user@localhost KICK " + target + " " + banMask + " :Banned\r\n";
                             channel->broadcast(kickMsg);
-                            
+
                             // Remove from channel
                             bool wasOperator = channel->isOperator(bannedClient);
                             channel->removeClient(bannedClient);
-                            
+
                             // If the banned user was an operator and channel is not empty, promote new operator
                             if (wasOperator && !channel->getClients().empty())
                             {
@@ -940,18 +940,22 @@ void Server::handleWho(Client *client, const std::vector<std::string> &args)
             std::string targetNick = (*it)->getNickname();
             std::string username = (*it)->getUsername();
             std::string realname = (*it)->getRealname();
-            
+
             // If username/realname is empty, use defaults
-            if (username.empty()) username = "user";
-            if (realname.empty()) realname = targetNick;
-            
+            if (username.empty())
+                username = "user";
+            if (realname.empty())
+                realname = targetNick;
+
             std::string prefix = channel->isOperator(*it) ? "@" : "";
             std::string flags = "H" + prefix; // H = Here (not away)
-            
+
             // RFC 1459 WHO reply format: 352 <nick> <channel> <user> <host> <server> <nick> <flags> :<hopcount> <real name>
             client->sendMessage(":localhost 352 " + nickname + " " + target + " " + username + " localhost localhost " + targetNick + " " + flags + " :0 " + realname + "\r\n");
+            // std::cout << "[WHO] Sent: :localhost 352 " << nickname << " " << target << " " << username << " localhost localhost " << targetNick << " " << flags << " :0 " << realname << std::endl;
         }
         client->sendMessage(":localhost 315 " + nickname + " " + target + " :End of /WHO list\r\n");
+        // std::cout << "[WHO] Sent: :localhost 315 " << nickname << " " << target << " :End of /WHO list" << std::endl;
     }
     else
     {
@@ -962,17 +966,21 @@ void Server::handleWho(Client *client, const std::vector<std::string> &args)
             client->sendMessage(":localhost 401 * " + target + " :No such nick/channel\r\n");
             return;
         }
-        
+
         std::string targetNick = targetClient->getNickname();
         std::string username = targetClient->getUsername();
         std::string realname = targetClient->getRealname();
-        
+
         // If username/realname is empty, use defaults
-        if (username.empty()) username = "user";
-        if (realname.empty()) realname = targetNick;
-        
+        if (username.empty())
+            username = "user";
+        if (realname.empty())
+            realname = targetNick;
+
         // Single user WHO reply
         client->sendMessage(":localhost 352 " + nickname + " * " + username + " localhost localhost " + targetNick + " H :0 " + realname + "\r\n");
+        std::cout << "[WHO] Sent: :localhost 352 " << nickname << " * " << username << " localhost localhost " << targetNick << " H :0 " << realname << std::endl;
         client->sendMessage(":localhost 315 " + nickname + " " + target + " :End of /WHO list\r\n");
+        std::cout << "[WHO] Sent: :localhost 315 " << nickname << " " << target << " :End of /WHO list" << std::endl;
     }
-} 
+}

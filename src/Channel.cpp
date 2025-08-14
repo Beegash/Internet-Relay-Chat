@@ -10,10 +10,6 @@ Channel::Channel(const std::string &name)
 
 Channel::~Channel()
 {
-    _invitedClients.clear();
-    _clients.clear();
-    _operators.clear();
-    _banList.clear();
 }
 
 const std::string &Channel::getName() const
@@ -102,14 +98,12 @@ void Channel::broadcast(const std::string &message, Client *sender)
 
 void Channel::setInviteOnly(bool inviteOnly)
 {
-    std::cout << "DEBUG: setInviteOnly(" << (inviteOnly ? "true" : "false") << ") for channel " << _name << std::endl;
-    _inviteOnly = inviteOnly;
+	_inviteOnly = inviteOnly;
 }
 
 bool Channel::isInviteOnly() const
 {
-    std::cout << "DEBUG: isInviteOnly() for channel " << _name << " = " << (_inviteOnly ? "true" : "false") << std::endl;
-    return _inviteOnly;
+	return _inviteOnly;
 }
 
 void Channel::setTopicRestricted(bool restricted)
@@ -144,17 +138,15 @@ int Channel::getUserLimit() const
 
 void Channel::addBan(const std::string &mask)
 {
-    if (!isBanned(mask))
-    {
-        std::cout << "DEBUG: addBan " << mask << std::endl;
-        _banList.push_back(mask);
-    }
+	if (!isBanned(mask))
+	{
+		_banList.push_back(mask);
+	}
 }
 
 void Channel::removeBan(const std::string &mask)
 {
-    std::cout << "DEBUG: removeBan " << mask << std::endl;
-    _banList.erase(std::remove(_banList.begin(), _banList.end(), mask), _banList.end());
+	_banList.erase(std::remove(_banList.begin(), _banList.end(), mask), _banList.end());
 }
 
 bool Channel::isBanned(const std::string &mask) const
@@ -177,25 +169,4 @@ void Channel::promoteNextOperator()
 		std::string modeMsg = ":localhost MODE " + _name + " +o " + nickname + "\r\n";
 		broadcast(modeMsg);
 	}
-}
-
-void Channel::addInvite(Client *client) {
-    if (client && std::find(_invitedClients.begin(), _invitedClients.end(), client) == _invitedClients.end()) {
-        std::cout << "DEBUG: addInvite " << client->getNickname() << std::endl;
-        _invitedClients.push_back(client);
-    }
-}
-
-void Channel::removeInvite(Client *client) {
-    if (client) {
-        std::vector<Client *>::iterator it = std::find(_invitedClients.begin(), _invitedClients.end(), client);
-        if (it != _invitedClients.end()) {
-            std::cout << "DEBUG: removeInvite " << client->getNickname() << std::endl;
-            _invitedClients.erase(it);
-        }
-    }
-}
-
-bool Channel::isInvited(Client *client) const {
-    return std::find(_invitedClients.begin(), _invitedClients.end(), client) != _invitedClients.end();
 }

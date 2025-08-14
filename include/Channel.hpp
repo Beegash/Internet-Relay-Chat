@@ -47,10 +47,6 @@ public:
 	bool isBanned(const std::string &mask) const;
 	std::vector<std::string> getBanList() const;
 
-	void addInvite(Client *client);
-    void removeInvite(Client *client);
-    bool isInvited(Client *client) const;
-
 private:
 	std::string _name;
 	std::string _topic;
@@ -63,7 +59,6 @@ private:
 	std::string _key;
 	int _userLimit;
 	std::vector<std::string> _banList;
-	std::vector<Client *> _invitedClients;
 };
 
 #endif
