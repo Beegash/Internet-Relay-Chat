@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 
 class Client;
 
@@ -41,6 +42,11 @@ public:
 	void setUserLimit(int limit);
 	int getUserLimit() const;
 
+	// Davet yönetimi (+i)
+	void addInvitation(const std::string &nickname);
+	void removeInvitation(const std::string &nickname);
+	bool isInvited(const std::string &nickname) const;
+
 	// Ban listesi yönetimi
 	void addBan(const std::string &mask);
 	void removeBan(const std::string &mask);
@@ -59,6 +65,9 @@ private:
 	std::string _key;
 	int _userLimit;
 	std::vector<std::string> _banList;
+
+	// Invite-only için davet listesi
+	std::set<std::string> _invitedNicks;
 };
 
 #endif

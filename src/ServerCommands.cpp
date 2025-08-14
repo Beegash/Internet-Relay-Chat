@@ -307,6 +307,27 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &args)
         return;
     }
 
+    // Invite-only (+i) kontrolü
+    if (channel->isInviteOnly())
+    {
+        if (!channel->isInvited(nickname))
+        {
+            client->sendMessage(":localhost 473 " + nickname + " " + channelName + " :Cannot join channel (+i)\r\n");
+            return;
+        }
+    }
+
+    // User limit (+l) kontrolü
+    if (channel->getUserLimit() > 0)
+    {
+        std::vector<Client *> clients = channel->getClients();
+        if (clients.size() >= static_cast<size_t>(channel->getUserLimit()))
+        {
+            client->sendMessage(":localhost 471 " + nickname + " " + channelName + " :Cannot join channel (+l)\r\n");
+            return;
+        }
+    }
+
     // Already in channel?
     if (channel->hasClient(client))
     {
@@ -341,6 +362,12 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &args)
     }
     client->sendMessage(":localhost 353 " + nickname + " = " + channelName + " :" + namesList + "\r\n");
     client->sendMessage(":localhost 366 " + nickname + " " + channelName + " :End of /NAMES list\r\n");
+
+    // Daveti tek kullanımlık tüket
+    if (channel->isInvited(nickname))
+    {
+        channel->removeInvitation(nickname);
+    }
 }
 
 void Server::handlePart(Client *client, const std::vector<std::string> &args)
@@ -553,6 +580,7 @@ void Server::handleInvite(Client *client, const std::vector<std::string> &args)
     std::string inviteMsg = ":" + nickname + "!user@localhost INVITE " + targetNick + " " + channelName + "\r\n";
     targetClient->sendMessage(inviteMsg);
     client->sendMessage(":localhost 341 " + nickname + " " + targetNick + " " + channelName + "\r\n");
+    channel->addInvitation(targetNick);
 }
 
 void Server::handleTopic(Client *client, const std::vector<std::string> &args)
@@ -774,20 +802,32 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             else if (mode == 'i')
             {
                 channel->setInviteOnly(setting);
+                std::string nickname = client->getNickname();
+                std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + (setting ? " +i\r\n" : " -i\r\n");
+                channel->broadcast(modeMsg);
             }
             else if (mode == 't')
             {
                 channel->setTopicRestricted(setting);
+                std::string nickname = client->getNickname();
+                std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + (setting ? " +t\r\n" : " -t\r\n");
+                channel->broadcast(modeMsg);
             }
             else if (mode == 'k')
             {
                 if (setting && args.size() > 3)
                 {
                     channel->setKey(args[3]);
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +k " + args[3] + "\r\n";
+                    channel->broadcast(modeMsg);
                 }
                 else if (!setting)
                 {
                     channel->setKey("");
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -k\r\n";
+                    channel->broadcast(modeMsg);
                 }
             }
             else if (mode == 'l')
@@ -796,10 +836,16 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                 {
                     int limit = atoi(args[3].c_str());
                     channel->setUserLimit(limit);
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +l " + args[3] + "\r\n";
+                    channel->broadcast(modeMsg);
                 }
                 else if (!setting)
                 {
                     channel->setUserLimit(0);
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -l\r\n";
+                    channel->broadcast(modeMsg);
                 }
             }
             else if (mode == 'o')

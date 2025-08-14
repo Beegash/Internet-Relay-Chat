@@ -170,3 +170,18 @@ void Channel::promoteNextOperator()
 		broadcast(modeMsg);
 	}
 }
+
+void Channel::addInvitation(const std::string &nickname)
+{
+	_invitedNicks.insert(nickname);
+}
+
+void Channel::removeInvitation(const std::string &nickname)
+{
+	_invitedNicks.erase(nickname);
+}
+
+bool Channel::isInvited(const std::string &nickname) const
+{
+	return _invitedNicks.find(nickname) != _invitedNicks.end();
+}
