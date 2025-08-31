@@ -73,7 +73,7 @@ void Server::run()
     FD_SET(_listen_fd, &_master_set);
     _fd_max = _listen_fd;
 
-    while (true)
+    while (!g_stop)
     {
         _read_fds = _master_set;
         int activity = select(_fd_max + 1, &_read_fds, NULL, NULL, NULL);

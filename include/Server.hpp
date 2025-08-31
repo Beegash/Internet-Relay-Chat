@@ -6,6 +6,10 @@
 #include <vector>
 #include <set>
 #include <sys/select.h>
+#include <csignal>
+
+static volatile sig_atomic_t g_stop = 0;
+
 
 class Client;
 class Channel;

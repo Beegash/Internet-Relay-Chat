@@ -2,8 +2,14 @@
 #include <cstdlib>
 #include "Server.hpp"
 
+void HandleSigint(int)
+{
+    g_stop = 1;
+}
+
 int main(int argc, char *argv[])
 {
+    signal(SIGINT, HandleSigint);
     if (argc != 3)
     {
         std::cerr << "Usage: " << argv[0] << " <port> <password>" << std::endl;

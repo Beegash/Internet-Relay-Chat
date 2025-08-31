@@ -93,13 +93,12 @@ void Server::removeClient(Client *client)
         }
     }
 
-    // Remove from nickname map
     if (!client->getNickname().empty())
     {
         _clients_by_nick.erase(client->getNickname());
     }
 
-    // Remove from all channels
+    std::vector<std::string> channelsToDelete;
     for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
     {
         Channel *channel = it->second;
@@ -112,11 +111,23 @@ void Server::removeClient(Client *client)
             {
                 channel->promoteNextOperator();
             }
+
+            if (channel->getClients().empty())
+            {
+                channelsToDelete.push_back(it->first);
+            }
         }
+    }
+
+    // Boş kanalları sil
+    for (std::vector<std::string>::iterator it = channelsToDelete.begin(); it != channelsToDelete.end(); ++it)
+    {
+        std::cout << "Deleting empty channel: " << *it << std::endl;
+        delete _channels[*it];
+        _channels.erase(*it);
     }
 
     // Delete client
     _clients.erase(fd);
     delete client;
-} 
- 
+}

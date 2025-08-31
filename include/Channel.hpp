@@ -30,6 +30,8 @@ public:
 	bool hasOperators() const;
 	void promoteNextOperator();
 
+
+
 	void broadcast(const std::string &message, Client *sender = NULL);
 
 	// Mode işlemleri

@@ -1,4 +1,5 @@
 #include "Server.hpp"
+
 #include "Client.hpp"
 #include "Channel.hpp"
 #include <iostream>
@@ -416,6 +417,14 @@ void Server::handlePart(Client *client, const std::vector<std::string> &args)
     {
         channel->promoteNextOperator();
     }
+
+    // Eğer kanal boşaldıysa sil
+    if (channel->getClients().empty())
+    {
+        std::cout << "Channel " << channelName << " is empty, deleting..." << std::endl;
+        _channels.erase(channelName);
+        delete channel;
+    }
 }
 
 void Server::handlePrivmsg(Client *client, const std::vector<std::string> &args)
@@ -591,12 +600,50 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
         return;
     }
 
-    std::string channelName = args[1];
-    Channel *channel = findChannel(channelName);
-    if (!channel)
+    std::string channelName;
+    Channel *channel;
+
+    // TOPIC komutunun iki format'ını destekle:
+    // 1. TOPIC selam (mevcut kanalda topic değiştir)
+    // 2. TOPIC #sohbet1 selam (belirtilen kanalda topic değiştir)
+
+    if (args[1][0] == '#')
     {
-        client->sendMessage(":localhost 403 * " + channelName + " :No such channel\r\n");
-        return;
+        // Format 2: TOPIC #kanal topic
+        channelName = args[1];
+        channel = findChannel(channelName);
+        if (!channel)
+        {
+            client->sendMessage(":localhost 403 * " + channelName + " :No such channel\r\n");
+            return;
+        }
+    }
+    else
+    {
+        if (args.size() >= 2)
+        {
+            channel = NULL;
+            for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
+            {
+                if (it->second->hasClient(client))
+                {
+                    channel = it->second;
+                    channelName = it->first;
+                    break;
+                }
+            }
+
+            if (!channel)
+            {
+                client->sendMessage(":localhost 442 * :You're not on any channel\r\n");
+                return;
+            }
+        }
+        else
+        {
+            client->sendMessage(":localhost 461 * TOPIC :Not enough parameters\r\n");
+            return;
+        }
     }
 
     if (!channel->hasClient(client))
@@ -621,16 +668,66 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
     else
     {
         // Change topic
+        // +t mode aktifken sadece operator'lar topic değiştirebilir
+        // -t mode aktifken herkes topic değiştirebilir
         if (channel->isTopicRestricted() && !channel->isOperator(client))
         {
             client->sendMessage(":localhost 482 * " + channelName + " :You're not channel operator\r\n");
             return;
         }
 
-        std::string topic = args[2];
-        if (topic[0] == ':')
+        // Topic parametrelerini birleştir
+        std::string topic;
+
+        if (args[1][0] == '#')
         {
-            topic = topic.substr(1);
+            // Format 2: TOPIC #kanal topic (args[2] ve sonrası)
+            for (size_t i = 2; i < args.size(); ++i)
+            {
+                std::string param = args[i];
+
+                // Her parametrede ':' işareti varsa kaldır
+                if (param[0] == ':')
+                {
+                    param = param.substr(1);
+                }
+
+                if (i == 2)
+                {
+                    // İlk parametre
+                    topic = param;
+                }
+                else
+                {
+                    // Sonraki parametreler için boşluk ekle
+                    topic += " " + param;
+                }
+            }
+        }
+        else
+        {
+            // Format 1: TOPIC topic (args[1] ve sonrası)
+            for (size_t i = 1; i < args.size(); ++i)
+            {
+                std::string param = args[i];
+
+                // Her parametrede ':' işareti varsa kaldır
+                if (param[0] == ':')
+                {
+                    param = param.substr(1);
+                }
+
+                if (i == 1)
+                {
+                    // İlk parametre
+                    topic = param;
+                }
+                else
+                {
+                    // Sonraki parametreler için boşluk ekle
+                    topic += " " + param;
+                }
+            }
         }
 
         channel->setTopic(topic);
@@ -665,16 +762,24 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             // Request mode information
             std::string nickname = client->getNickname();
             std::string modes = "+";
+            std::string modeParams = "";
+
             if (channel->isInviteOnly())
                 modes += "i";
             if (channel->isTopicRestricted())
                 modes += "t";
             if (!channel->getKey().empty())
+            {
                 modes += "k";
+                modeParams += " " + channel->getKey();
+            }
             if (channel->getUserLimit() > 0)
+            {
                 modes += "l";
+                modeParams += " " + std::to_string(channel->getUserLimit());
+            }
 
-            client->sendMessage(":localhost 324 " + nickname + " " + target + " " + modes + "\r\n");
+            client->sendMessage(":localhost 324 " + nickname + " " + target + " " + modes + modeParams + "\r\n");
             return;
         }
 
@@ -716,10 +821,11 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
         }
 
         // Simple mode handling (i, t, k, o, l)
+        bool setting = true; // Default to adding modes
+
         for (size_t i = 0; i < modes.length(); ++i)
         {
             char mode = modes[i];
-            bool setting = true;
 
             if (mode == '+')
             {
@@ -805,6 +911,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                 std::string nickname = client->getNickname();
                 std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + (setting ? " +i\r\n" : " -i\r\n");
                 channel->broadcast(modeMsg);
+
+                // KVIrc için mode değişikliğini log'da göster
+                std::cout << "[" << client->getFd() << "] MODE " << target << (setting ? " +i" : " -i") << " set by " << nickname << std::endl;
             }
             else if (mode == 't')
             {
@@ -812,6 +921,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                 std::string nickname = client->getNickname();
                 std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + (setting ? " +t\r\n" : " -t\r\n");
                 channel->broadcast(modeMsg);
+
+                // KVIrc için mode değişikliğini log'da göster
+                std::cout << "[" << client->getFd() << "] MODE " << target << (setting ? " +t" : " -t") << " set by " << nickname << std::endl;
             }
             else if (mode == 'k')
             {
@@ -819,8 +931,12 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                 {
                     channel->setKey(args[3]);
                     std::string nickname = client->getNickname();
+                    // KVIrc'de +k mode'unun görünmesi için şifreyi broadcast ediyoruz
                     std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +k " + args[3] + "\r\n";
                     channel->broadcast(modeMsg);
+
+                    // KVIrc için mode değişikliğini log'da göster
+                    std::cout << "[" << client->getFd() << "] MODE " << target << " +k " << args[3] << " set by " << nickname << std::endl;
                 }
                 else if (!setting)
                 {
@@ -828,6 +944,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                     std::string nickname = client->getNickname();
                     std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -k\r\n";
                     channel->broadcast(modeMsg);
+
+                    // KVIrc için mode değişikliğini log'da göster
+                    std::cout << "[" << client->getFd() << "] MODE " << target << " -k set by " << nickname << std::endl;
                 }
             }
             else if (mode == 'l')
@@ -839,6 +958,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                     std::string nickname = client->getNickname();
                     std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +l " + args[3] + "\r\n";
                     channel->broadcast(modeMsg);
+
+                    // KVIrc için mode değişikliğini log'da göster
+                    std::cout << "[" << client->getFd() << "] MODE " << target << " +l " << args[3] << " set by " << nickname << std::endl;
                 }
                 else if (!setting)
                 {
@@ -846,6 +968,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                     std::string nickname = client->getNickname();
                     std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -l\r\n";
                     channel->broadcast(modeMsg);
+
+                    // KVIrc için mode değişikliğini log'da göster
+                    std::cout << "[" << client->getFd() << "] MODE " << target << " -l set by " << nickname << std::endl;
                 }
             }
             else if (mode == 'o')
