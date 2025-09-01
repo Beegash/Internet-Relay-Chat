@@ -603,12 +603,13 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
 
     std::string channelName;
     Channel *channel;
+    bool explicitChannel = (args[1][0] == '#');
 
     // TOPIC komutunun iki format'ını destekle:
     // 1. TOPIC selam (mevcut kanalda topic değiştir)
     // 2. TOPIC #sohbet1 selam (belirtilen kanalda topic değiştir)
 
-    if (args[1][0] == '#')
+    if (explicitChannel)
     {
         // Format 2: TOPIC #kanal topic
         channelName = args[1];
@@ -653,7 +654,8 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
         return;
     }
 
-    if (args.size() == 2)
+    // Only show topic if explicitChannel && args.size() == 2
+    if (explicitChannel && args.size() == 2)
     {
         // Show topic
         std::string nickname = client->getNickname();
@@ -680,7 +682,7 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
         // Topic parametrelerini birleştir
         std::string topic;
 
-        if (args[1][0] == '#')
+        if (explicitChannel)
         {
             // Format 2: TOPIC #kanal topic (args[2] ve sonrası)
             for (size_t i = 2; i < args.size(); ++i)
@@ -740,13 +742,241 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
 
 void Server::handleMode(Client *client, const std::vector<std::string> &args)
 {
+    // --- Enhanced logic for inferring channel and supporting /mode [modes] and /mode (no args) ---
+    Channel *inferredChannel = NULL;
+    std::string inferredName;
     if (args.size() < 2)
     {
-        client->sendMessage(":localhost 461 * MODE :Not enough parameters\r\n");
+        // Try to infer current channel for the client
+        for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
+        {
+            if (it->second->hasClient(client))
+            {
+                inferredChannel = it->second;
+                inferredName = it->first;
+                break;
+            }
+        }
+        if (!inferredChannel)
+        {
+            client->sendMessage(":localhost 461 * MODE :Not enough parameters\r\n");
+            return;
+        }
+        // Show mode info as if /mode #channel
+        std::string nickname = client->getNickname();
+        std::string modes = "+";
+        std::string modeParams = "";
+        std::ostringstream oss;
+        oss << inferredChannel->getUserLimit();
+        if (inferredChannel->isInviteOnly())
+            modes += "i";
+        if (inferredChannel->isTopicRestricted())
+            modes += "t";
+        if (!inferredChannel->getKey().empty())
+        {
+            modes += "k";
+            modeParams += " " + inferredChannel->getKey();
+        }
+        if (inferredChannel->getUserLimit() > 0)
+        {
+            modes += "l";
+            modeParams += " " + oss.str();
+        }
+        client->sendMessage(":localhost 324 " + nickname + " " + inferredName + " " + modes + modeParams + "\r\n");
         return;
     }
 
     std::string target = args[1];
+    // If target does not start with '#' but starts with '+' or '-', treat as /mode +flags (in channel)
+    if (target[0] != '#' && (target[0] == '+' || target[0] == '-'))
+    {
+        // Infer channel
+        for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
+        {
+            if (it->second->hasClient(client))
+            {
+                inferredChannel = it->second;
+                inferredName = it->first;
+                break;
+            }
+        }
+        if (!inferredChannel)
+        {
+            client->sendMessage(":localhost 461 * MODE :Not enough parameters\r\n");
+            return;
+        }
+        // Use inferred channel and treat args[1] as modes, args[2...] as mode params
+        std::string modes = target;
+        Channel *channel = inferredChannel;
+        std::string channelName = inferredName;
+        if (!channel->isOperator(client))
+        {
+            client->sendMessage(":localhost 482 * " + channelName + " :You're not channel operator\r\n");
+            return;
+        }
+        // Simple mode handling (i, t, k, o, l)
+        bool setting = true; // Default to adding modes
+        size_t paramArg = 2;
+        for (size_t i = 0; i < modes.length(); ++i)
+        {
+            char mode = modes[i];
+            if (mode == '+')
+            {
+                setting = true;
+                continue;
+            }
+            else if (mode == '-')
+            {
+                setting = false;
+                continue;
+            }
+            if (mode == 'b')
+            {
+                if (args.size() > paramArg)
+                {
+                    std::string banMask = args[paramArg];
+                    if (setting)
+                    {
+                        std::string nickname = client->getNickname();
+                        if (banMask == nickname || banMask == nickname + "!*@*")
+                        {
+                            client->sendMessage(":localhost 485 * " + channelName + " :You cannot ban yourself\r\n");
+                            continue;
+                        }
+                        if (banMask == "*!*@localhost" || banMask == "*!*@*" || banMask == "*")
+                        {
+                            client->sendMessage(":localhost 486 * " + channelName + " :Ban mask too broad - would ban everyone\r\n");
+                            continue;
+                        }
+                        channel->addBan(banMask);
+                        std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " +b " + banMask + "\r\n";
+                        channel->broadcast(modeMsg);
+                        Client *bannedClient = NULL;
+                        if (banMask.find("!") == std::string::npos && banMask.find("*") == std::string::npos)
+                        {
+                            bannedClient = findClientByNickname(banMask);
+                        }
+                        else if (banMask.length() > 4 && banMask.substr(banMask.length() - 4) == "!*@*")
+                        {
+                            std::string nickOnly = banMask.substr(0, banMask.length() - 4);
+                            bannedClient = findClientByNickname(nickOnly);
+                        }
+                        if (bannedClient && channel->hasClient(bannedClient))
+                        {
+                            std::string kickMsg = ":" + nickname + "!user@localhost KICK " + channelName + " " + banMask + " :Banned\r\n";
+                            channel->broadcast(kickMsg);
+                            bool wasOperator = channel->isOperator(bannedClient);
+                            channel->removeClient(bannedClient);
+                            if (wasOperator && !channel->getClients().empty())
+                            {
+                                channel->promoteNextOperator();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        channel->removeBan(banMask);
+                        std::string nickname = client->getNickname();
+                        std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " -b " + banMask + "\r\n";
+                        channel->broadcast(modeMsg);
+                    }
+                }
+            }
+            else if (mode == 'i')
+            {
+                channel->setInviteOnly(setting);
+                std::string nickname = client->getNickname();
+                std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + (setting ? " +i\r\n" : " -i\r\n");
+                channel->broadcast(modeMsg);
+                std::cout << "[" << client->getFd() << "] MODE " << channelName << (setting ? " +i" : " -i") << " set by " << nickname << std::endl;
+            }
+            else if (mode == 't')
+            {
+                channel->setTopicRestricted(setting);
+                std::string nickname = client->getNickname();
+                std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + (setting ? " +t\r\n" : " -t\r\n");
+                channel->broadcast(modeMsg);
+                std::cout << "[" << client->getFd() << "] MODE " << channelName << (setting ? " +t" : " -t") << " set by " << nickname << std::endl;
+            }
+            else if (mode == 'k')
+            {
+                if (setting && args.size() > paramArg)
+                {
+                    channel->setKey(args[paramArg]);
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " +k " + args[paramArg] + "\r\n";
+                    channel->broadcast(modeMsg);
+                    std::cout << "[" << client->getFd() << "] MODE " << channelName << " +k " << args[paramArg] << " set by " << nickname << std::endl;
+                }
+                else if (!setting)
+                {
+                    channel->setKey("");
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " -k\r\n";
+                    channel->broadcast(modeMsg);
+                    std::cout << "[" << client->getFd() << "] MODE " << channelName << " -k set by " << nickname << std::endl;
+                }
+            }
+            else if (mode == 'l')
+            {
+                if (setting && args.size() > paramArg)
+                {
+                    const std::string &limStr = args[paramArg];
+                    char *endptr = NULL;
+                    long val = strtol(limStr.c_str(), &endptr, 10);
+                    if (limStr.empty() || *endptr != '\0' || val <= 0)
+                    {
+                        client->sendMessage(":localhost 461 * MODE :Invalid +l parameter (limit must be a positive integer)\r\n");
+                    }
+                    else
+                    {
+                        int limit = static_cast<int>(val);
+                        channel->setUserLimit(limit);
+                        std::string nickname = client->getNickname();
+                        std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " +l " + limStr + "\r\n";
+                        channel->broadcast(modeMsg);
+                        std::cout << "[" << client->getFd() << "] MODE " << channelName << " +l " << limStr << " set by " << nickname << std::endl;
+                    }
+                }
+                else if (!setting)
+                {
+                    channel->setUserLimit(0);
+                    std::string nickname = client->getNickname();
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " -l\r\n";
+                    channel->broadcast(modeMsg);
+                    std::cout << "[" << client->getFd() << "] MODE " << channelName << " -l set by " << nickname << std::endl;
+                }
+            }
+            else if (mode == 'o')
+            {
+                if (args.size() > paramArg)
+                {
+                    std::string targetNick = args[paramArg];
+                    Client *targetClient = findClientByNickname(targetNick);
+                    if (targetClient && channel->hasClient(targetClient))
+                    {
+                        std::string nickname = client->getNickname();
+                        if (setting)
+                        {
+                            channel->addOperator(targetClient);
+                            std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " +o " + targetNick + "\r\n";
+                            channel->broadcast(modeMsg);
+                        }
+                        else
+                        {
+                            channel->removeOperator(targetClient);
+                            std::string modeMsg = ":" + nickname + "!user@localhost MODE " + channelName + " -o " + targetNick + "\r\n";
+                            channel->broadcast(modeMsg);
+                        }
+                    }
+                }
+            }
+            // For each mode that uses a parameter, increase paramArg
+            if (mode == 'b' || mode == 'k' || mode == 'l' || mode == 'o')
+                ++paramArg;
+        }
+        return;
+    }
 
     if (target[0] == '#')
     {
@@ -956,14 +1186,24 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             {
                 if (setting && args.size() > 3)
                 {
-                    int limit = atoi(args[3].c_str());
-                    channel->setUserLimit(limit);
-                    std::string nickname = client->getNickname();
-                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +l " + args[3] + "\r\n";
-                    channel->broadcast(modeMsg);
+                    const std::string &limStr = args[3];
+                    char *endptr = NULL;
+                    long val = strtol(limStr.c_str(), &endptr, 10);
+                    if (limStr.empty() || *endptr != '\0' || val <= 0)
+                    {
+                        client->sendMessage(":localhost 461 * MODE :Invalid +l parameter (limit must be a positive integer)\r\n");
+                    }
+                    else
+                    {
+                        int limit = static_cast<int>(val);
+                        channel->setUserLimit(limit);
+                        std::string nickname = client->getNickname();
+                        std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +l " + limStr + "\r\n";
+                        channel->broadcast(modeMsg);
 
-                    // KVIrc için mode değişikliğini log'da göster
-                    std::cout << "[" << client->getFd() << "] MODE " << target << " +l " << args[3] << " set by " << nickname << std::endl;
+                        // KVIrc için mode değişikliğini log'da göster
+                        std::cout << "[" << client->getFd() << "] MODE " << target << " +l " << limStr << " set by " << nickname << std::endl;
+                    }
                 }
                 else if (!setting)
                 {
