@@ -28,8 +28,8 @@ void Server::handleNewConnection(int listen_fd)
 
         std::cout << "New connection: " << client_fd << " (fd_max: " << _fd_max << ")" << std::endl;
 
-        // Şifre isteniyor mesajı
-        client->sendMessage(":localhost 464 * :Lütfen sunucuya bağlanmak için PASS <şifre> komutunu kullanın.\r\n");
+        // Prompt for password using NOTICE instead of 464 error
+        client->sendMessage(":localhost NOTICE * :Please authenticate with PASS <password> before using other commands.\r\n");
     }
 }
 
