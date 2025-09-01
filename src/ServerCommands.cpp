@@ -3,6 +3,7 @@
 #include "Client.hpp"
 #include "Channel.hpp"
 #include <iostream>
+#include <stdlib.h>
 #include <algorithm>
 #include <sstream>
 
@@ -763,6 +764,8 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             std::string nickname = client->getNickname();
             std::string modes = "+";
             std::string modeParams = "";
+            std::ostringstream oss;
+            oss << channel->getUserLimit();
 
             if (channel->isInviteOnly())
                 modes += "i";
@@ -776,7 +779,7 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             if (channel->getUserLimit() > 0)
             {
                 modes += "l";
-                modeParams += " " + std::to_string(channel->getUserLimit());
+                modeParams += " " + oss.str();
             }
 
             client->sendMessage(":localhost 324 " + nickname + " " + target + " " + modes + modeParams + "\r\n");
