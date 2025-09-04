@@ -4,17 +4,17 @@ SRC = src/main.cpp src/Server.cpp src/ServerNetwork.cpp src/ServerUtils.cpp src/
 
 OBJ = $(SRC:.cpp=.o)
 
-CC = c++
+CXX = c++
 
-CPPFLAGS = -Wall -Wextra -Werror -std=c++98
+CXXFLAGS = -Wall -Wextra -Werror -std=c++98
 
 all: $(NAME)
 
 $(NAME): $(OBJ)
-	$(CC) $(CPPFLAGS) -Iinclude -o $(NAME) $(OBJ)
+	$(CXX) $(CXXFLAGS) -Iinclude -o $(NAME) $(OBJ)
 
 %.o: %.cpp
-	$(CC) $(CPPFLAGS) -Iinclude -c $< -o $@
+	$(CXX) $(CXXFLAGS) -Iinclude -c $< -o $@
 
 clean:
 	rm -f $(OBJ)

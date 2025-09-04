@@ -7,6 +7,25 @@
 #include <algorithm>
 #include <sstream>
 
+static bool isValidNick(const std::string &n)
+{
+    if (n.empty() || n.size() > 9)
+        return false;
+
+    const std::string firstAllowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz[]\\`^{}_|-";
+    const std::string restAllowed  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789[]\\`^{}_|-";
+
+    if (firstAllowed.find(n[0]) == std::string::npos)
+        return false;
+
+    for (size_t i = 1; i < n.size(); ++i)
+    {
+        if (restAllowed.find(n[i]) == std::string::npos)
+            return false;
+    }
+    return true;
+}
+
 void Server::processCommand(Client *client, const std::string &command)
 {
     std::vector<std::string> args = splitCommand(command);
@@ -122,6 +141,14 @@ void Server::handleNick(Client *client, const std::vector<std::string> &args)
 
     std::string requestedNick = args[1];
     std::string nickname = requestedNick;
+
+    // Validate nickname format per RFC-like rules
+    if (!isValidNick(requestedNick))
+    {
+        std::string who = client->getNickname().empty() ? "*" : client->getNickname();
+        client->sendMessage(":localhost 432 " + who + " " + requestedNick + " :Erroneous nickname\r\n");
+        return;
+    }
 
     // Check for nickname collision and alternative suggestion
     if (findClientByNickname(nickname))
@@ -438,12 +465,27 @@ void Server::handlePrivmsg(Client *client, const std::vector<std::string> &args)
     }
 
     std::string target = args[1];
-    std::string message = args[2];
 
-    // If message starts with ":", remove it
-    if (message[0] == ':')
+    // Join trailing parameters into the message body per RFC: everything from args[2] onward is the text, with the first part optionally starting with ':'
+    std::string message;
+    if (args.size() >= 3)
     {
-        message = message.substr(1);
+        // Build message by concatenating args[2..]
+        for (size_t i = 2; i < args.size(); ++i)
+        {
+            std::string part = args[i];
+            if (i == 2 && !part.empty() && part[0] == ':')
+                part = part.substr(1);
+            if (!message.empty()) message += " ";
+            message += part;
+        }
+    }
+
+    // If after parsing the message is empty, return standard error
+    if (message.empty())
+    {
+        client->sendMessage(":localhost 412 * :No text to send\r\n");
+        return;
     }
 
     if (target[0] == '#')
@@ -623,30 +665,29 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
     }
     else
     {
-        if (args.size() >= 2)
+        // Implicit form: TOPIC <topic...>
+        // Only allowed if the user is in exactly one channel.
+        std::vector<Channel*> joined;
+        for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
         {
-            channel = NULL;
-            for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
-            {
-                if (it->second->hasClient(client))
-                {
-                    channel = it->second;
-                    channelName = it->first;
-                    break;
-                }
-            }
-
-            if (!channel)
-            {
-                client->sendMessage(":localhost 442 * :You're not on any channel\r\n");
-                return;
-            }
+            if (it->second->hasClient(client))
+                joined.push_back(it->second);
         }
-        else
+
+        if (joined.empty())
         {
-            client->sendMessage(":localhost 461 * TOPIC :Not enough parameters\r\n");
+            client->sendMessage(":localhost 442 * :You're not on any channel\r\n");
             return;
         }
+        if (joined.size() > 1)
+        {
+            // Ambiguous: user is in multiple channels; require explicit channel name
+            client->sendMessage(":localhost 461 * TOPIC :Channel name required (use: TOPIC #channel [<topic>])\r\n");
+            return;
+        }
+
+        channel = joined[0];
+        channelName = channel->getName();
     }
 
     if (!channel->hasClient(client))
@@ -672,11 +713,12 @@ void Server::handleTopic(Client *client, const std::vector<std::string> &args)
     else
     {
         // Change topic
+        std::string nickname_for_err = client->getNickname();
         // +t mode aktifken sadece operator'lar topic değiştirebilir
         // -t mode aktifken herkes topic değiştirebilir
         if (channel->isTopicRestricted() && !channel->isOperator(client))
         {
-            client->sendMessage(":localhost 482 * " + channelName + " :You're not channel operator\r\n");
+            client->sendMessage(":localhost 482 " + nickname_for_err + " " + channelName + " :You're not channel operator\r\n");
             return;
         }
 
@@ -785,7 +827,9 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             if (!channel->getKey().empty())
             {
                 modes += "k";
-                modeParams += " " + channel->getKey();
+                // Only reveal the actual key to channel members
+                if (channel->hasClient(client))
+                    modeParams += " " + channel->getKey();
             }
             if (channel->getUserLimit() > 0)
             {
@@ -941,25 +985,39 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
             }
             else if (mode == 'k')
             {
-                if (setting && args.size() > 3)
+                std::string nickname = client->getNickname();
+                if (setting)
                 {
-                    channel->setKey(args[3]);
-                    std::string nickname = client->getNickname();
-                    // KVIrc'de +k mode'unun görünmesi için şifreyi broadcast ediyoruz
-                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +k " + args[3] + "\r\n";
+                    if (args.size() <= 3 || args[3].empty())
+                    {
+                        client->sendMessage(":localhost 461 * MODE :Not enough parameters\r\n");
+                        continue;
+                    }
+                    const std::string &newKey = args[3];
+                    channel->setKey(newKey);
+                    // Echo MODE change; include key as per RFC. Channel members will see it.
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " +k " + newKey + "\r\n";
                     channel->broadcast(modeMsg);
-
-                    // KVIrc için mode değişikliğini log'da göster
-                    std::cout << "[" << client->getFd() << "] MODE " << target << " +k " << args[3] << " set by " << nickname << std::endl;
+                    std::cout << "[" << client->getFd() << "] MODE " << target << " +k " << newKey << " set by " << nickname << std::endl;
                 }
-                else if (!setting)
+                else
                 {
+                    // RFC 2812 suggests using -k <key> to remove; if the key is supplied and matches, clear it. If missing, reject.
+                    if (args.size() <= 3)
+                    {
+                        client->sendMessage(":localhost 461 * MODE :Not enough parameters\r\n");
+                        continue;
+                    }
+                    const std::string &provided = args[3];
+                    if (provided != channel->getKey())
+                    {
+                        // Key mismatch – do not remove; send a clear diagnostic
+                        client->sendMessage(":localhost 525 * " + target + " :Key mismatch for -k\r\n");
+                        continue;
+                    }
                     channel->setKey("");
-                    std::string nickname = client->getNickname();
-                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -k\r\n";
+                    std::string modeMsg = ":" + nickname + "!user@localhost MODE " + target + " -k \r\n";
                     channel->broadcast(modeMsg);
-
-                    // KVIrc için mode değişikliğini log'da göster
                     std::cout << "[" << client->getFd() << "] MODE " << target << " -k set by " << nickname << std::endl;
                 }
             }
@@ -979,7 +1037,7 @@ void Server::handleMode(Client *client, const std::vector<std::string> &args)
                         long val = strtol(limStr.c_str(), &endptr, 10);
                         if (limStr.empty() || *endptr != '\0' || val <= 0)
                         {
-                            client->sendMessage(":localhost 461 * MODE :Invalid +l parameter (limit must be a positive integer)\r\n");
+                            client->sendMessage(":localhost 461 * MODE :Invalid +l parameter (limit must be a positive integer > 0)\r\n");
                         }
                         else
                         {
