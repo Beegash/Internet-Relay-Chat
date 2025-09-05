@@ -17,7 +17,7 @@ Server::Server(int port, const char *password)
 
 Server::~Server()
 {
-    // Clean up all clients
+
     for (std::map<int, Client *>::iterator it = _clients.begin(); it != _clients.end(); ++it)
     {
         delete it->second;
@@ -25,7 +25,6 @@ Server::~Server()
     _clients.clear();
     _clients_by_nick.clear();
 
-    // Clean up all channels
     for (std::map<std::string, Channel *>::iterator it = _channels.begin(); it != _channels.end(); ++it)
     {
         delete it->second;
@@ -44,6 +43,9 @@ void Server::run()
         std::cerr << "Socket could not be created" << std::endl;
         return;
     }
+
+    int opt = 1;
+    setsockopt(_listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     fcntl(_listen_fd, F_SETFL, O_NONBLOCK);
 
@@ -102,5 +104,4 @@ void Server::run()
             }
         }
     }
-} 
- 
+}

@@ -30,11 +30,8 @@ public:
 	bool hasOperators() const;
 	void promoteNextOperator();
 
-
-
 	void broadcast(const std::string &message, Client *sender = NULL);
 
-	// Mode işlemleri
 	void setInviteOnly(bool inviteOnly);
 	bool isInviteOnly() const;
 	void setTopicRestricted(bool restricted);
@@ -44,12 +41,10 @@ public:
 	void setUserLimit(int limit);
 	int getUserLimit() const;
 
-	// Davet yönetimi (+i)
 	void addInvitation(const std::string &nickname);
 	void removeInvitation(const std::string &nickname);
 	bool isInvited(const std::string &nickname) const;
 
-	// Ban listesi yönetimi
 	void addBan(const std::string &mask);
 	void removeBan(const std::string &mask);
 	bool isBanned(const std::string &mask) const;
@@ -61,14 +56,12 @@ private:
 	std::vector<Client *> _clients;
 	std::vector<Client *> _operators;
 
-	// Channel modes
 	bool _inviteOnly;
 	bool _topicRestricted;
 	std::string _key;
 	int _userLimit;
 	std::vector<std::string> _banList;
 
-	// Invite-only için davet listesi
 	std::set<std::string> _invitedNicks;
 };
 

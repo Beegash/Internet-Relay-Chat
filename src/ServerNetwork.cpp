@@ -19,7 +19,6 @@ void Server::handleNewConnection(int listen_fd)
         Client *client = new Client(client_fd);
         _clients[client_fd] = client;
 
-        // CRITICAL: Add new fd to master_set
         FD_SET(client_fd, &_master_set);
         if (client_fd > _fd_max)
         {
@@ -28,7 +27,6 @@ void Server::handleNewConnection(int listen_fd)
 
         std::cout << "New connection: " << client_fd << " (fd_max: " << _fd_max << ")" << std::endl;
 
-        // Prompt for password using NOTICE instead of 464 error
         client->sendMessage(":localhost NOTICE * :Please authenticate with PASS <password> before using other commands.\r\n");
     }
 }
@@ -49,7 +47,6 @@ void Server::handleClientData(Client *client)
 
         std::cout << "[" << client->getFd() << "] Received data: " << data << std::endl;
 
-        // Add data to buffer and process commands
         std::string &buffer = client->_buffer;
         buffer += data;
 
@@ -77,10 +74,8 @@ void Server::removeClient(Client *client)
 
     std::cout << "Removing client: " << fd << std::endl;
 
-    // CRITICAL: Remove fd from master_set
     FD_CLR(fd, &_master_set);
 
-    // Update fd_max
     if (fd == _fd_max)
     {
         _fd_max = _listen_fd;
@@ -119,7 +114,6 @@ void Server::removeClient(Client *client)
         }
     }
 
-    // Boş kanalları sil
     for (std::vector<std::string>::iterator it = channelsToDelete.begin(); it != channelsToDelete.end(); ++it)
     {
         std::cout << "Deleting empty channel: " << *it << std::endl;
@@ -127,7 +121,6 @@ void Server::removeClient(Client *client)
         _channels.erase(*it);
     }
 
-    // Delete client
     _clients.erase(fd);
     delete client;
 }

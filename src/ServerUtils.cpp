@@ -5,26 +5,29 @@
 #include <sstream>
 #include <algorithm>
 
-std::vector<std::string> Server::splitCommand(const std::string& command)
+std::vector<std::string> Server::splitCommand(const std::string &command)
 {
     std::vector<std::string> args;
     size_t start = 0;
     size_t pos = 0;
-    
-    // Split parameters by spaces
-    while (pos < command.length()) {
-        if (command[pos] == ' ') {
-            if (pos > start) {
+
+    while (pos < command.length())
+    {
+        if (command[pos] == ' ')
+        {
+            if (pos > start)
+            {
                 std::string arg = command.substr(start, pos - start);
-                if (!arg.empty()) {
+                if (!arg.empty())
+                {
                     args.push_back(arg);
                 }
             }
             start = pos + 1;
-            
-            // Check for trailing parameter starting with ':'
-            if (start < command.length() && command[start] == ':') {
-                // Everything after ':' is the last parameter
+
+            if (start < command.length() && command[start] == ':')
+            {
+
                 std::string trailing = command.substr(start);
                 args.push_back(trailing);
                 break;
@@ -32,38 +35,39 @@ std::vector<std::string> Server::splitCommand(const std::string& command)
         }
         pos++;
     }
-    
-    // Add last parameter if it doesn't start with ':'
-    if (start < command.length() && (start == 0 || command[start] != ':')) {
+
+    if (start < command.length() && (start == 0 || command[start] != ':'))
+    {
         std::string arg = command.substr(start);
-        if (!arg.empty()) {
+        if (!arg.empty())
+        {
             args.push_back(arg);
         }
     }
-    
+
     return args;
 }
 
-Client* Server::findClientByNickname(const std::string& nickname)
+Client *Server::findClientByNickname(const std::string &nickname)
 {
-    std::map<std::string, Client*>::iterator it = _clients_by_nick.find(nickname);
+    std::map<std::string, Client *>::iterator it = _clients_by_nick.find(nickname);
     return (it != _clients_by_nick.end()) ? it->second : NULL;
 }
 
-Channel* Server::findChannel(const std::string& name)
+Channel *Server::findChannel(const std::string &name)
 {
-    std::map<std::string, Channel*>::iterator it = _channels.find(name);
+    std::map<std::string, Channel *>::iterator it = _channels.find(name);
     return (it != _channels.end()) ? it->second : NULL;
 }
 
-Channel* Server::createChannel(const std::string& name)
+Channel *Server::createChannel(const std::string &name)
 {
-    Channel* channel = new Channel(name);
+    Channel *channel = new Channel(name);
     _channels[name] = channel;
     return channel;
 }
 
-void Server::sendWelcome(Client* client)
+void Server::sendWelcome(Client *client)
 {
     std::string nickname = client->getNickname();
     client->sendMessage(":localhost 001 " + nickname + " :Welcome to the Internet Relay Network " + nickname + "!user@localhost\r\n");
@@ -71,4 +75,4 @@ void Server::sendWelcome(Client* client)
     client->sendMessage(":localhost 003 " + nickname + " :This server was created today\r\n");
     client->sendMessage(":localhost 004 " + nickname + " localhost 1.0 oiws biklmnopstv\r\n");
     client->sendMessage(":localhost 005 " + nickname + " CHANTYPES=# PREFIX=(ov)@+ NETWORK=LocalIRC :are supported by this server\r\n");
-} 
+}
